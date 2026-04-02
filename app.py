@@ -74,15 +74,16 @@ def login():
     return redirect(auth_url)
 
 
-@app.route("/oauth2callback")
+@app.route('/oauth2callback')
 def oauth2callback():
     if "state" not in session or "code_verifier" not in session:
-        return "Session expired or missing OAuth state. Go back and try /login again.", 400
+        return "Session expired...", 400
 
     flow = get_flow(
         state=session["state"],
         code_verifier=session["code_verifier"]
     )
+
     flow.fetch_token(authorization_response=request.url)
 
     creds = flow.credentials
@@ -105,16 +106,11 @@ def oauth2callback():
         msg = "📅 Your next events:\n"
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
-            summary = event.get("summary", "Untitled event")
-            msg += f"• {summary} at {start}\n"
+            msg += f"• {event['summary']} at {start}\n"
         send_telegram(msg)
 
-    return "Calendar checked. Check your Telegram."
+    return "Calendar checked. Check your Telegram!"
 
-
- @app.route("/morning")
-def morning():
-    return oauth2callback()   
 
 
 if __name__ == "__main__":
