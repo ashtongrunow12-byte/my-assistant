@@ -85,11 +85,6 @@ def oauth2callback():
     )
     flow.fetch_token(authorization_response=request.url)
 
-@app.route("/morning")
-def morning():
-    return oauth2callback()
-
-    
     creds = flow.credentials
     service = build("calendar", "v3", credentials=creds)
 
@@ -115,6 +110,11 @@ def morning():
         send_telegram(msg)
 
     return "Calendar checked. Check your Telegram."
+
+
+ @app.route("/morning")
+def morning():
+    return oauth2callback()   
 
 
 if __name__ == "__main__":
