@@ -89,7 +89,7 @@ def oauth2callback():
     creds = flow.credentials
     service = build("calendar", "v3", credentials=creds)
 
-    now = datetime.datetime.utcnow().isoformat() + "Z"
+    now = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat() + "Z"
     events_result = service.events().list(
         calendarId="primary",
         timeMin=now,
