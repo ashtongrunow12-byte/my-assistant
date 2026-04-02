@@ -106,7 +106,8 @@ def oauth2callback():
         msg = "📅 Your next events:\n"
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
-            msg += f"• {event['summary']} at {start}\n"
+           summary = event.get("summary", "No Title")
+msg += f"• {summary} at {start}\n""
         send_telegram(msg)
 
     return "Calendar checked. Check your Telegram!"
