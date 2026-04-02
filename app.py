@@ -1,10 +1,12 @@
 from flask import Flask, redirect, request, session
 import os
+import json
 import requests
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import datetime
+import tempfile
 
 app = Flask(__name__)
 app.secret_key = 'mysecretkey123'
@@ -12,11 +14,16 @@ app.secret_key = 'mysecretkey123'
 TELEGRAM_TOKEN = "8127824873:AAHCEOLuDHvmh22Ospprnyn4zi-BYUzq6nE"
 CHAT_ID = "8798214200"
 
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": CHAT_ID, "text": message})
+
+def get_credentials_file():
+    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    tmp.write(creds_json)
+    tmp.close()
+    return tmp.name
 
 @app.route('/')
 def home():
@@ -24,8 +31,9 @@ def home():
 
 @app.route('/login')
 def login():
+    creds_file = get_credentials_file()
     flow = Flow.from_client_secrets_file(
-        'credentials.json',
+        creds_file,
         scopes=['https://www.googleapis.com/auth/calendar.readonly'],
         redirect_uri='https://my-assistant-production-2fe1.up.railway.app/oauth2callback'
     )
@@ -35,8 +43,9 @@ def login():
 
 @app.route('/oauth2callback')
 def callback():
+    creds_file = get_credentials_file()
     flow = Flow.from_client_secrets_file(
-        'credentials.json',
+        creds_file,
         scopes=['https://www.googleapis.com/auth/calendar.readonly'],
         redirect_uri='https://my-assistant-production-2fe1.up.railway.app/oauth2callback',
         state=session['state']
