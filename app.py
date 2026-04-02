@@ -85,6 +85,11 @@ def oauth2callback():
     )
     flow.fetch_token(authorization_response=request.url)
 
+@app.route("/morning")
+def morning():
+    return oauth2callback()
+
+    
     creds = flow.credentials
     service = build("calendar", "v3", credentials=creds)
 
