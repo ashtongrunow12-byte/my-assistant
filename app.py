@@ -9,10 +9,13 @@ import datetime
 import tempfile
 
 app = Flask(__name__)
-app.secret_key = 'mysecretkey123'
+app.secret_key = os.urandom(24)
 
 TELEGRAM_TOKEN = "8127824873:AAHCEOLuDHvmh22Ospprnyn4zi-BYUzq6nE"
 CHAT_ID = "8798214200"
+
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+REDIRECT_URI = 'https://my-assistant-production-2fe1.up.railway.app/oauth2callback'
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -34,21 +37,27 @@ def login():
     creds_file = get_credentials_file()
     flow = Flow.from_client_secrets_file(
         creds_file,
-        scopes=['https://www.googleapis.com/auth/calendar.readonly'],
-        redirect_uri='https://my-assistant-production-2fe1.up.railway.app/oauth2callback'
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI
     )
-    auth_url, state = flow.authorization_url()
+    flow.code_challenge_method = None
+    auth_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true'
+    )
     session['state'] = state
+    session.modified = True
     return redirect(auth_url)
 
 @app.route('/oauth2callback')
 def callback():
     creds_file = get_credentials_file()
+    state = request.args.get('state')
     flow = Flow.from_client_secrets_file(
         creds_file,
-        scopes=['https://www.googleapis.com/auth/calendar.readonly'],
-        redirect_uri='https://my-assistant-production-2fe1.up.railway.app/oauth2callback',
-        state=session['state']
+        scopes=SCOPES,
+        redirect_uri=REDIRECT_URI,
+        state=state
     )
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
