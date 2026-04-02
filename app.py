@@ -2,6 +2,7 @@ from flask import Flask, redirect, request, session
 import os
 import json
 import requests
+import secrets
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -21,48 +22,47 @@ def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={"chat_id": CHAT_ID, "text": message})
 
-def get_credentials_file():
-    creds_json = os.environ.get('GOOGLE_CREDENTIALS')
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-    tmp.write(creds_json)
-    tmp.close()
-    return tmp.name
+def get_flow(state=None, code_verifier=None):
+    creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    creds_dict = json.loads(creds_json)
 
-@app.route('/')
-def home():
-    return '<a href="/login">Click here to connect Google Calendar</a>'
-
-@app.route('/login')
-def login():
-    creds_file = get_credentials_file()
-    flow = Flow.from_client_secrets_file(
-        creds_file,
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
-    auth_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        code_challenge_method=None
-    )
-    session['state'] = state
-    session.modified = True
-    return redirect(auth_url)
-
-@app.route('/oauth2callback')
-def callback():
-    creds_file = get_credentials_file()
-    state = request.args.get('state')
-    flow = Flow.from_client_secrets_file(
-        creds_file,
-        scopes=SCOPES,
+    flow = Flow.from_client_config(
+        creds_dict,
+        scopes=['https://www.googleapis.com/auth/calendar.readonly'],
         redirect_uri=REDIRECT_URI,
         state=state
     )
-    flow.code_verifier = None
+
+    if code_verifier:
+        flow.code_verifier = code_verifier
+
+    return flow
+
+@app.route('/login')
+def login():
+    code_verifier = secrets.token_urlsafe(64)
+    session['code_verifier'] = code_verifier
+
+    flow = get_flow(code_verifier=code_verifier)
+    auth_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        code_challenge_method='S256'
+    )
+    session['state'] = state
+    return redirect(auth_url)
+
+@app.route('/oauth2callback')
+def oauth2callback():
+    flow = get_flow(
+        state=session['state'],
+        code_verifier=session['code_verifier']
+    )
     flow.fetch_token(authorization_response=request.url)
+
     creds = flow.credentials
     service = build('calendar', 'v3', credentials=creds)
+
     now = datetime.datetime.utcnow().isoformat() + 'Z'
     events_result = service.events().list(
         calendarId='primary',
@@ -71,7 +71,9 @@ def callback():
         singleEvents=True,
         orderBy='startTime'
     ).execute()
+
     events = events_result.get('items', [])
+
     if not events:
         send_telegram('No upcoming events found!')
     else:
@@ -80,6 +82,7 @@ def callback():
             start = event['start'].get('dateTime', event['start'].get('date'))
             msg += f"• {event['summary']} at {start}\n"
         send_telegram(msg)
+
     return 'Calendar checked! Check your Telegram!'
 
 if __name__ == '__main__':
