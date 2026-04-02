@@ -40,10 +40,10 @@ def login():
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    flow.code_challenge_method = None
     auth_url, state = flow.authorization_url(
         access_type='offline',
-        include_granted_scopes='true'
+        include_granted_scopes='true',
+        code_challenge_method=None
     )
     session['state'] = state
     session.modified = True
@@ -59,6 +59,7 @@ def callback():
         redirect_uri=REDIRECT_URI,
         state=state
     )
+    flow.code_verifier = None
     flow.fetch_token(authorization_response=request.url)
     creds = flow.credentials
     service = build('calendar', 'v3', credentials=creds)
