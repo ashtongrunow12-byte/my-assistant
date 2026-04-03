@@ -58,6 +58,14 @@ def home():
     return '<a href="/login">Click here to connect Google Calendar</a>'
 
 
+@app.route('/brief')
+def manual_brief():
+    now = datetime.datetime.now()
+    greeting = f"🌅 Good morning Ashton! Here's your briefing for today:\n\n"
+    send_telegram(greeting)
+    return 'Briefing sent! Check Telegram!'
+
+
 @app.route("/login")
 def login():
     code_verifier = secrets.token_urlsafe(64)
