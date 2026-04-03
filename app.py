@@ -175,6 +175,14 @@ def oauth2callback():
 
     return "Calendar checked. Check your Telegram!"
 
+@app.route('/debug')
+def debug():
+    token = os.environ.get("GOOGLE_TOKEN")
+    if token:
+        return f"Token found! Length: {len(token)}"
+    else:
+        return "No token found!"
+
 
 def run_schedule():
     while True:
