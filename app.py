@@ -77,6 +77,43 @@ def get_motivation():
         return "💪 Keep pushing Ashton, you've got this!"
 
 
+def get_weather():
+    try:
+        url = "https://wttr.in/Abbotsford,BC?format=j1"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        current = data["current_condition"][0]
+        temp_c = current["temp_C"]
+        feels_like = current["FeelsLikeC"]
+        desc = current["weatherDesc"][0]["value"]
+        humidity = current["humidity"]
+
+        # Pick emoji based on description
+        desc_lower = desc.lower()
+        if "sun" in desc_lower or "clear" in desc_lower:
+            emoji = "☀️"
+        elif "cloud" in desc_lower:
+            emoji = "☁️"
+        elif "rain" in desc_lower or "drizzle" in desc_lower:
+            emoji = "🌧️"
+        elif "snow" in desc_lower:
+            emoji = "❄️"
+        elif "thunder" in desc_lower or "storm" in desc_lower:
+            emoji = "⛈️"
+        elif "fog" in desc_lower or "mist" in desc_lower:
+            emoji = "🌫️"
+        else:
+            emoji = "🌤️"
+
+        return (
+            f"{emoji} Abbotsford Weather:\n"
+            f"{desc}, {temp_c}°C (feels like {feels_like}°C)\n"
+            f"Humidity: {humidity}%"
+        )
+    except Exception as e:
+        return f"🌤️ Weather unavailable"
+
+
 def get_calendar_events():
     try:
         creds_json = os.environ.get("GOOGLE_TOKEN")
@@ -302,7 +339,8 @@ def handle_telegram_commands():
                     motivation = get_motivation()
                     calendar = get_calendar_events()
                     gmail = get_gmail_summary()
-                    msg = f"🌅 Here's your briefing Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+                    weather = get_weather()
+                    msg = f"🌅 Here's your briefing Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
                     send_telegram(msg)
 
                 elif text in ["events", "/events"]:
@@ -314,6 +352,9 @@ def handle_telegram_commands():
                 elif text in ["emails", "/emails"]:
                     send_telegram(get_gmail_summary())
 
+                elif text in ["weather", "/weather"]:
+                    send_telegram(get_weather())
+
                 elif text in ["checkin", "/checkin"]:
                     start_weekly_checkin()
 
@@ -324,6 +365,7 @@ def handle_telegram_commands():
                         "events — today's calendar\n"
                         "quote — motivational quote\n"
                         "emails — unread emails\n"
+                        "weather — current weather\n"
                         "checkin — start weekly check-in\n"
                         "help — show this list"
                     )
@@ -359,7 +401,8 @@ def manual_brief():
     motivation = get_motivation()
     calendar = get_calendar_events()
     gmail = get_gmail_summary()
-    msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+    weather = get_weather()
+    msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
     send_telegram(msg)
     return 'Briefing sent! Check Telegram!'
 
@@ -445,7 +488,8 @@ def run_schedule():
             motivation = get_motivation()
             calendar = get_calendar_events()
             gmail = get_gmail_summary()
-            msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+            weather = get_weather()
+            msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
             send_telegram(msg)
             time.sleep(61)
 
