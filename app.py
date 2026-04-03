@@ -23,6 +23,33 @@ REDIRECT_URI = "https://my-assistant-production-2fe1.up.railway.app/oauth2callba
 
 alerted_events = set()
 
+# Weekly checkin state
+checkin_state = {
+    "active": False,
+    "question_index": 0,
+    "answers": []
+}
+
+CHECKIN_QUESTIONS = [
+    "💪 Did you work out this week? (yes/no)",
+    "🥗 Did you eat healthy most days? (yes/no)",
+    "😴 Did you get enough sleep? (yes/no)",
+    "🎯 Did you make progress on your goals? (yes/no)",
+    "🧠 Did you learn something new this week? (yes/no)",
+    "📵 Did you avoid too much mindless phone/doomscrolling? (yes/no)",
+    "😊 Overall how was your week? (rate 1-10)"
+]
+
+CHECKIN_LABELS = [
+    "Worked out",
+    "Ate healthy",
+    "Got enough sleep",
+    "Made progress on goals",
+    "Learned something new",
+    "Avoided doomscrolling",
+    "Week rating"
+]
+
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -83,6 +110,88 @@ def get_calendar_events():
         return f"📅 Calendar error: {str(e)}"
 
 
+def get_weekly_calendar_recap():
+    try:
+        creds_json = os.environ.get("GOOGLE_TOKEN")
+        if not creds_json:
+            return "📅 No calendar connected."
+
+        creds_data = json.loads(creds_json)
+        creds = Credentials(**creds_data)
+        service = build("calendar", "v3", credentials=creds)
+
+        now = datetime.datetime.utcnow()
+        week_ago = now - datetime.timedelta(days=7)
+
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=week_ago.isoformat() + "Z",
+            timeMax=now.isoformat() + "Z",
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+
+        events = events_result.get("items", [])
+        if not events:
+            return "📅 No events this past week."
+
+        msg = "📅 Your week in review:\n"
+        for event in events:
+            start = event["start"].get("dateTime", event["start"].get("date"))
+            summary = event.get("summary", "No Title")
+            try:
+                dt = datetime.datetime.fromisoformat(start.replace("Z", ""))
+                formatted = dt.strftime("%a %b %d at %I:%M %p")
+            except:
+                formatted = start
+            msg += f"• {summary} — {formatted}\n"
+        return msg
+    except Exception as e:
+        return f"📅 Calendar error: {str(e)}"
+
+
+def start_weekly_checkin():
+    checkin_state["active"] = True
+    checkin_state["question_index"] = 0
+    checkin_state["answers"] = []
+    send_telegram("📋 Hey Ashton! Time for your weekly check-in!\n\nLet's see how this week went 💪")
+    time.sleep(2)
+    send_telegram(CHECKIN_QUESTIONS[0])
+
+
+def finish_weekly_checkin():
+    checkin_state["active"] = False
+    answers = checkin_state["answers"]
+    labels = CHECKIN_LABELS
+
+    summary = "✅ Weekly Check-in Results:\n\n"
+    for i, label in enumerate(labels):
+        if i < len(answers):
+            answer = answers[i]
+            if i == 6:
+                summary += f"• {label}: {answer}/10\n"
+            else:
+                emoji = "✅" if answer.lower() == "yes" else "❌"
+                summary += f"{emoji} {label}\n"
+
+    yes_count = sum(1 for a in answers[:6] if a.lower() == "yes")
+    summary += f"\n🏆 Score: {yes_count}/6 habits completed!"
+
+    if yes_count == 6:
+        summary += "\n\n🔥 Perfect week Ashton!! Absolutely killing it!"
+    elif yes_count >= 4:
+        summary += "\n\n👊 Solid week! Keep building on this!"
+    elif yes_count >= 2:
+        summary += "\n\n💪 Room to grow — next week is a new chance!"
+    else:
+        summary += "\n\n🌱 Rough week, that's okay. Reset and go again!"
+
+    send_telegram(summary)
+    time.sleep(2)
+    recap = get_weekly_calendar_recap()
+    send_telegram(recap)
+
+
 def check_upcoming_events():
     try:
         creds_json = os.environ.get("GOOGLE_TOKEN")
@@ -136,24 +245,40 @@ def handle_telegram_commands():
                 if chat_id != CHAT_ID:
                     continue
 
-                if text == "brief" or text == "/brief":
+                # Handle weekly checkin answers
+                if checkin_state["active"]:
+                    checkin_state["answers"].append(text)
+                    next_index = checkin_state["question_index"] + 1
+                    checkin_state["question_index"] = next_index
+
+                    if next_index < len(CHECKIN_QUESTIONS):
+                        send_telegram(CHECKIN_QUESTIONS[next_index])
+                    else:
+                        finish_weekly_checkin()
+                    continue
+
+                if text in ["brief", "/brief"]:
                     motivation = get_motivation()
                     calendar = get_calendar_events()
                     msg = f"🌅 Here's your briefing Ashton!\n\n{motivation}\n\n{calendar}"
                     send_telegram(msg)
 
-                elif text == "events" or text == "/events":
+                elif text in ["events", "/events"]:
                     send_telegram(get_calendar_events())
 
-                elif text == "quote" or text == "/quote":
+                elif text in ["quote", "/quote"]:
                     send_telegram(get_motivation())
 
-                elif text == "help" or text == "/help":
+                elif text in ["checkin", "/checkin"]:
+                    start_weekly_checkin()
+
+                elif text in ["help", "/help"]:
                     send_telegram(
                         "🤖 Commands you can send me:\n\n"
                         "brief — morning briefing\n"
                         "events — today's calendar\n"
                         "quote — motivational quote\n"
+                        "checkin — start weekly check-in\n"
                         "help — show this list"
                     )
 
@@ -268,12 +393,20 @@ def oauth2callback():
 def run_schedule():
     while True:
         now = datetime.datetime.now()
+
+        # 4am Pacific = 12:00 UTC morning briefing
         if now.hour == 12 and now.minute == 0:
             motivation = get_motivation()
             calendar = get_calendar_events()
             msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
             send_telegram(msg)
             time.sleep(61)
+
+        # Sunday 8pm Pacific = Monday 4:00 UTC weekly checkin
+        if now.weekday() == 0 and now.hour == 4 and now.minute == 0:
+            start_weekly_checkin()
+            time.sleep(61)
+
         check_upcoming_events()
         time.sleep(60)
 
@@ -281,6 +414,7 @@ def run_schedule():
 def start_scheduler():
     thread = threading.Thread(target=run_schedule, daemon=True)
     thread.start()
+
 
 def start_bot_listener():
     thread = threading.Thread(target=handle_telegram_commands, daemon=True)
