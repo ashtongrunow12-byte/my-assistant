@@ -17,6 +17,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-this")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY")
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -111,6 +112,25 @@ def get_weather():
         )
     except Exception as e:
         return f"🌤️ Weather unavailable: {str(e)}"
+
+
+def get_news():
+    try:
+        url = f"https://newsapi.org/v2/top-headlines?country=ca&pageSize=3&apiKey={NEWS_API_KEY}"
+        response = requests.get(url, timeout=15)
+        data = response.json()
+        articles = data.get("articles", [])
+        if not articles:
+            return "📰 No news available right now."
+
+        msg = "📰 Top news today:\n"
+        for article in articles:
+            title = article.get("title", "No title")
+            title = title.split(" - ")[0]
+            msg += f"• {title}\n"
+        return msg
+    except Exception as e:
+        return f"📰 News unavailable: {str(e)}"
 
 
 def get_calendar_events():
@@ -341,7 +361,8 @@ def handle_telegram_commands():
                     calendar = get_calendar_events()
                     gmail = get_gmail_summary()
                     weather = get_weather()
-                    msg = f"🌅 Here's your briefing Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+                    news = get_news()
+                    msg = f"🌅 Here's your briefing Ashton!\n\n{weather}\n\n{news}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
                     send_telegram(msg)
 
                 elif text_lower in ["events", "/events"]:
@@ -356,6 +377,9 @@ def handle_telegram_commands():
                 elif text_lower in ["weather", "/weather"]:
                     send_telegram(get_weather())
 
+                elif text_lower in ["news", "/news"]:
+                    send_telegram(get_news())
+
                 elif text_lower in ["checkin", "/checkin"]:
                     start_weekly_checkin()
 
@@ -367,6 +391,7 @@ def handle_telegram_commands():
                         "quote — motivational quote\n"
                         "emails — unread emails\n"
                         "weather — current weather\n"
+                        "news — top headlines\n"
                         "checkin — start weekly check-in\n"
                         "help — show this list"
                     )
@@ -403,7 +428,8 @@ def manual_brief():
     calendar = get_calendar_events()
     gmail = get_gmail_summary()
     weather = get_weather()
-    msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+    news = get_news()
+    msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{news}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
     send_telegram(msg)
     return 'Briefing sent! Check Telegram!'
 
@@ -490,7 +516,8 @@ def run_schedule():
             calendar = get_calendar_events()
             gmail = get_gmail_summary()
             weather = get_weather()
-            msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
+            news = get_news()
+            msg = f"🌅 Good morning Ashton!\n\n{weather}\n\n{news}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
             send_telegram(msg)
             time.sleep(61)
 
