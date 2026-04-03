@@ -62,9 +62,9 @@ def home():
 
 @app.route('/brief')
 def manual_brief():
-    now = datetime.datetime.now()
-    greeting = f"🌅 Good morning Ashton! Here's your briefing for today:\n\n"
-    send_telegram(greeting)
+    motivation = get_motivation()
+    msg = f"🌅 Good morning Ashton! Here's your briefing:\n\n{motivation}"
+    send_telegram(msg)
     return 'Briefing sent! Check Telegram!'
 
 
@@ -126,15 +126,25 @@ def oauth2callback():
 
     return "Calendar checked. Check your Telegram!"             
 
+def get_motivation():
+    try:
+        response = requests.get("https://zenquotes.io/api/today", timeout=10)
+        data = response.json()
+        quote = data[0]['q']
+        author = data[0]['a']
+        return f"💪 Quote of the day:\n\"{quote}\"\n— {author}"
+    except:
+        return "💪 Keep pushing Ashton, you've got this!"
+    
 def run_schedule():
     while True:
         now = datetime.datetime.now()
-        # Pacific time - 4am
-        if now.hour == 12 and now.minute == 0:  # 12:00 UTC = 4:00 AM Pacific
-            greeting = "🌅 Good morning Ashton! Here's your daily briefing!\n"
-            send_telegram(greeting)
-            time.sleep(61)  # wait 61 seconds to avoid sending twice
-        time.sleep(30)  # check every 30 seconds
+        if now.hour == 12 and now.minute == 0:
+            motivation = get_motivation()
+            msg = f"🌅 Good morning Ashton! Here's your briefing:\n\n{motivation}"
+            send_telegram(msg)
+            time.sleep(61)
+        time.sleep(30)
 
 def start_scheduler():
     thread = threading.Thread(target=run_schedule, daemon=True)
