@@ -68,7 +68,7 @@ def send_telegram(message):
 
 def get_motivation():
     try:
-        response = requests.get("https://zenquotes.io/api/today", timeout=10)
+        response = requests.get("https://zenquotes.io/api/random", timeout=10)
         data = response.json()
         quote = data[0]['q']
         author = data[0]['a']
