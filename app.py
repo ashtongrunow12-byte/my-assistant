@@ -9,8 +9,9 @@ import secrets
 import requests
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
-app = Flask(__name__)   
+app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-this")
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -25,7 +26,6 @@ def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("Telegram variables are missing.")
         return
-
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     response = requests.post(
         url,
@@ -33,7 +33,52 @@ def send_telegram(message):
         timeout=15
     )
     print("Telegram status:", response.status_code)
-    print("Telegram response:", response.text)
+
+
+def get_motivation():
+    try:
+        response = requests.get("https://zenquotes.io/api/today", timeout=10)
+        data = response.json()
+        quote = data[0]['q']
+        author = data[0]['a']
+        return f"💪 Quote of the day:\n\"{quote}\"\n— {author}"
+    except:
+        return "💪 Keep pushing Ashton, you've got this!"
+
+
+def get_calendar_events():
+    try:
+        creds_json = os.environ.get("GOOGLE_TOKEN")
+        if not creds_json:
+            return "📅 No calendar connected yet."
+
+        creds_data = json.loads(creds_json)
+        creds = Credentials(**creds_data)
+        service = build("calendar", "v3", credentials=creds)
+
+        now = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0).isoformat() + "Z"
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=now,
+            maxResults=5,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+
+        events = events_result.get("items", [])
+        if not events:
+            return "📅 No events today!"
+
+        msg = "📅 Today's events:\n"
+        for event in events:
+            start = event["start"].get("dateTime", event["start"].get("date"))
+            summary = event.get("summary", "No Title")
+            dt = datetime.datetime.fromisoformat(start.replace("Z", ""))
+            formatted_time = dt.strftime("%I:%M %p")
+            msg += f"• {summary} at {formatted_time}\n"
+        return msg
+    except Exception as e:
+        return f"📅 Calendar error: {str(e)}"
 
 
 def get_flow(state=None, code_verifier=None):
@@ -41,17 +86,14 @@ def get_flow(state=None, code_verifier=None):
         raise ValueError("GOOGLE_CREDENTIALS environment variable is missing.")
 
     creds_dict = json.loads(GOOGLE_CREDENTIALS)
-
     flow = Flow.from_client_config(
         creds_dict,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI,
         state=state
     )
-
     if code_verifier:
         flow.code_verifier = code_verifier
-
     return flow
 
 
@@ -63,7 +105,8 @@ def home():
 @app.route('/brief')
 def manual_brief():
     motivation = get_motivation()
-    msg = f"🌅 Good morning Ashton! Here's your briefing:\n\n{motivation}"
+    calendar = get_calendar_events()
+    msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
     send_telegram(msg)
     return 'Briefing sent! Check Telegram!'
 
@@ -72,14 +115,12 @@ def manual_brief():
 def login():
     code_verifier = secrets.token_urlsafe(64)
     session["code_verifier"] = code_verifier
-
     flow = get_flow(code_verifier=code_verifier)
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         code_challenge_method="S256"
     )
-
     session["state"] = state
     return redirect(auth_url)
 
@@ -93,9 +134,7 @@ def oauth2callback():
         state=session["state"],
         code_verifier=session["code_verifier"]
     )
-
     flow.fetch_token(authorization_response=request.url)
-
     creds = flow.credentials
     service = build("calendar", "v3", credentials=creds)
 
@@ -117,38 +156,41 @@ def oauth2callback():
         for event in events:
             start = event["start"].get("dateTime", event["start"].get("date"))
             summary = event.get("summary", "No Title")
-
             dt = datetime.datetime.fromisoformat(start.replace("Z", ""))
             formatted_time = dt.strftime("%I:%M %p")
-
             msg += f"• {summary} at {formatted_time}\n"
         send_telegram(msg)
 
-    return "Calendar checked. Check your Telegram!"             
+    # Save credentials for auto briefing
+    token_data = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": list(creds.scopes)
+    }
+    print("GOOGLE_TOKEN:", json.dumps(token_data))
 
-def get_motivation():
-    try:
-        response = requests.get("https://zenquotes.io/api/today", timeout=10)
-        data = response.json()
-        quote = data[0]['q']
-        author = data[0]['a']
-        return f"💪 Quote of the day:\n\"{quote}\"\n— {author}"
-    except:
-        return "💪 Keep pushing Ashton, you've got this!"
-    
+    return "Calendar checked. Check your Telegram!"
+
+
 def run_schedule():
     while True:
         now = datetime.datetime.now()
         if now.hour == 12 and now.minute == 0:
             motivation = get_motivation()
-            msg = f"🌅 Good morning Ashton! Here's your briefing:\n\n{motivation}"
+            calendar = get_calendar_events()
+            msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
             send_telegram(msg)
             time.sleep(61)
         time.sleep(30)
 
+
 def start_scheduler():
     thread = threading.Thread(target=run_schedule, daemon=True)
     thread.start()
+
 
 if __name__ == "__main__":
     start_scheduler()
