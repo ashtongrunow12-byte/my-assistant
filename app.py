@@ -17,6 +17,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-this")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -66,6 +67,23 @@ def send_telegram(message):
     print("Telegram status:", response.status_code)
 
 
+def ask_ai(prompt):
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{
+                "parts": [{
+                    "text": f"You are Ashton's personal AI assistant. You know he lives in Abbotsford BC Canada, he's learning Python and building cool projects, he's working on himself and his health. Be friendly, direct and helpful. Keep responses concise for Telegram.\n\nAshton says: {prompt}"
+                }]
+            }]
+        }
+        response = requests.post(url, json=payload, timeout=20)
+        data = response.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return f"AI error: {str(e)}"
+
+
 def get_motivation():
     try:
         response = requests.get("https://zenquotes.io/api/today", timeout=10)
@@ -88,7 +106,6 @@ def get_weather():
         desc = current["weatherDesc"][0]["value"]
         humidity = current["humidity"]
 
-        # Pick emoji based on description
         desc_lower = desc.lower()
         if "sun" in desc_lower or "clear" in desc_lower:
             emoji = "☀️"
@@ -318,14 +335,16 @@ def handle_telegram_commands():
             for update in data.get("result", []):
                 last_update_id = update["update_id"] + 1
                 message = update.get("message", {})
-                text = message.get("text", "").lower().strip()
+                text = message.get("text", "").strip()
                 chat_id = str(message.get("chat", {}).get("id", ""))
 
                 if chat_id != CHAT_ID:
                     continue
 
+                text_lower = text.lower()
+
                 if checkin_state["active"]:
-                    checkin_state["answers"].append(text)
+                    checkin_state["answers"].append(text_lower)
                     next_index = checkin_state["question_index"] + 1
                     checkin_state["question_index"] = next_index
 
@@ -335,7 +354,7 @@ def handle_telegram_commands():
                         finish_weekly_checkin()
                     continue
 
-                if text in ["brief", "/brief"]:
+                if text_lower in ["brief", "/brief"]:
                     motivation = get_motivation()
                     calendar = get_calendar_events()
                     gmail = get_gmail_summary()
@@ -343,22 +362,22 @@ def handle_telegram_commands():
                     msg = f"🌅 Here's your briefing Ashton!\n\n{weather}\n\n{motivation}\n\n{calendar}\n\n{gmail}"
                     send_telegram(msg)
 
-                elif text in ["events", "/events"]:
+                elif text_lower in ["events", "/events"]:
                     send_telegram(get_calendar_events())
 
-                elif text in ["quote", "/quote"]:
+                elif text_lower in ["quote", "/quote"]:
                     send_telegram(get_motivation())
 
-                elif text in ["emails", "/emails"]:
+                elif text_lower in ["emails", "/emails"]:
                     send_telegram(get_gmail_summary())
 
-                elif text in ["weather", "/weather"]:
+                elif text_lower in ["weather", "/weather"]:
                     send_telegram(get_weather())
 
-                elif text in ["checkin", "/checkin"]:
+                elif text_lower in ["checkin", "/checkin"]:
                     start_weekly_checkin()
 
-                elif text in ["help", "/help"]:
+                elif text_lower in ["help", "/help"]:
                     send_telegram(
                         "🤖 Commands you can send me:\n\n"
                         "brief — morning briefing\n"
@@ -367,8 +386,15 @@ def handle_telegram_commands():
                         "emails — unread emails\n"
                         "weather — current weather\n"
                         "checkin — start weekly check-in\n"
-                        "help — show this list"
+                        "help — show this list\n\n"
+                        "💬 Or just ask me anything and I'll reply with AI!"
                     )
+
+                else:
+                    # Everything else goes to AI
+                    send_telegram("🤔 Thinking...")
+                    reply = ask_ai(text)
+                    send_telegram(reply)
 
         except Exception as e:
             print(f"Telegram listener error: {e}")
