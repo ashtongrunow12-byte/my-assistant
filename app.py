@@ -17,7 +17,6 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-this")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -67,30 +66,6 @@ def send_telegram(message):
     print("Telegram status:", response.status_code)
 
 
-def ask_ai(prompt):
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        payload = {
-            "contents": [{
-                "parts": [{
-                    "text": f"You are Ashton's personal AI assistant. You know he lives in Abbotsford BC Canada, he's learning Python and building cool projects, he's working on himself and his health. Be friendly, direct and helpful. Keep responses concise for Telegram.\n\nAshton says: {prompt}"
-                }]
-            }]
-        }
-        response = requests.post(url, json=payload, timeout=20)
-        data = response.json()
-        print("Gemini response:", json.dumps(data))
-        
-        if "candidates" in data:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        elif "error" in data:
-            return f"API error: {data['error']['message']}"
-        else:
-            return f"Unexpected response: {str(data)[:200]}"
-    except Exception as e:
-        return f"AI error: {str(e)}"
-
-
 def get_motivation():
     try:
         response = requests.get("https://zenquotes.io/api/today", timeout=10)
@@ -105,7 +80,7 @@ def get_motivation():
 def get_weather():
     try:
         url = "https://wttr.in/Abbotsford,BC?format=j1"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=20)
         data = response.json()
         current = data["current_condition"][0]
         temp_c = current["temp_C"]
@@ -135,7 +110,7 @@ def get_weather():
             f"Humidity: {humidity}%"
         )
     except Exception as e:
-        return f"🌤️ Weather unavailable"
+        return f"🌤️ Weather unavailable: {str(e)}"
 
 
 def get_calendar_events():
@@ -393,15 +368,8 @@ def handle_telegram_commands():
                         "emails — unread emails\n"
                         "weather — current weather\n"
                         "checkin — start weekly check-in\n"
-                        "help — show this list\n\n"
-                        "💬 Or just ask me anything and I'll reply with AI!"
+                        "help — show this list"
                     )
-
-                else:
-                    # Everything else goes to AI
-                    send_telegram("🤔 Thinking...")
-                    reply = ask_ai(text)
-                    send_telegram(reply)
 
         except Exception as e:
             print(f"Telegram listener error: {e}")
