@@ -21,6 +21,8 @@ GOOGLE_CREDENTIALS = os.environ.get("GOOGLE_CREDENTIALS")
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 REDIRECT_URI = "https://my-assistant-production-2fe1.up.railway.app/oauth2callback"
 
+alerted_events = set()
+
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not CHAT_ID:
@@ -81,6 +83,85 @@ def get_calendar_events():
         return f"📅 Calendar error: {str(e)}"
 
 
+def check_upcoming_events():
+    try:
+        creds_json = os.environ.get("GOOGLE_TOKEN")
+        if not creds_json:
+            return
+
+        creds_data = json.loads(creds_json)
+        creds = Credentials(**creds_data)
+        service = build("calendar", "v3", credentials=creds)
+
+        now = datetime.datetime.utcnow()
+        soon = now + datetime.timedelta(minutes=31)
+
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=now.isoformat() + "Z",
+            timeMax=soon.isoformat() + "Z",
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+
+        events = events_result.get("items", [])
+        for event in events:
+            event_id = event["id"]
+            if event_id not in alerted_events:
+                summary = event.get("summary", "No Title")
+                start = event["start"].get("dateTime", event["start"].get("date"))
+                dt = datetime.datetime.fromisoformat(start.replace("Z", "+00:00"))
+                local_time = dt.astimezone().strftime("%I:%M %p")
+                send_telegram(f"⏰ Heads up! '{summary}' starts at {local_time} — in about 30 minutes!")
+                alerted_events.add(event_id)
+    except Exception as e:
+        print(f"Upcoming events error: {e}")
+
+
+def handle_telegram_commands():
+    last_update_id = None
+    while True:
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+            params = {"timeout": 10, "offset": last_update_id}
+            response = requests.get(url, params=params, timeout=15)
+            data = response.json()
+
+            for update in data.get("result", []):
+                last_update_id = update["update_id"] + 1
+                message = update.get("message", {})
+                text = message.get("text", "").lower().strip()
+                chat_id = str(message.get("chat", {}).get("id", ""))
+
+                if chat_id != CHAT_ID:
+                    continue
+
+                if text == "brief" or text == "/brief":
+                    motivation = get_motivation()
+                    calendar = get_calendar_events()
+                    msg = f"🌅 Here's your briefing Ashton!\n\n{motivation}\n\n{calendar}"
+                    send_telegram(msg)
+
+                elif text == "events" or text == "/events":
+                    send_telegram(get_calendar_events())
+
+                elif text == "quote" or text == "/quote":
+                    send_telegram(get_motivation())
+
+                elif text == "help" or text == "/help":
+                    send_telegram(
+                        "🤖 Commands you can send me:\n\n"
+                        "brief — morning briefing\n"
+                        "events — today's calendar\n"
+                        "quote — motivational quote\n"
+                        "help — show this list"
+                    )
+
+        except Exception as e:
+            print(f"Telegram listener error: {e}")
+        time.sleep(2)
+
+
 def get_flow(state=None, code_verifier=None):
     if not GOOGLE_CREDENTIALS:
         raise ValueError("GOOGLE_CREDENTIALS environment variable is missing.")
@@ -111,17 +192,26 @@ def manual_brief():
     return 'Briefing sent! Check Telegram!'
 
 
+@app.route('/debug')
+def debug():
+    token = os.environ.get("GOOGLE_TOKEN")
+    if token:
+        return f"Token found! Length: {len(token)}"
+    else:
+        return "No token found!"
+
+
 @app.route("/login")
 def login():
     code_verifier = secrets.token_urlsafe(64)
     session["code_verifier"] = code_verifier
     flow = get_flow(code_verifier=code_verifier)
     auth_url, state = flow.authorization_url(
-    access_type="offline",
-    include_granted_scopes="true",
-    code_challenge_method="S256",
-    prompt="consent"
-)
+        access_type="offline",
+        include_granted_scopes="true",
+        code_challenge_method="S256",
+        prompt="consent"
+    )
     session["state"] = state
     return redirect(auth_url)
 
@@ -162,7 +252,6 @@ def oauth2callback():
             msg += f"• {summary} at {formatted_time}\n"
         send_telegram(msg)
 
-    # Save credentials for auto briefing
     token_data = {
         "token": creds.token,
         "refresh_token": creds.refresh_token,
@@ -175,14 +264,6 @@ def oauth2callback():
 
     return "Calendar checked. Check your Telegram!"
 
-@app.route('/debug')
-def debug():
-    token = os.environ.get("GOOGLE_TOKEN")
-    if token:
-        return f"Token found! Length: {len(token)}"
-    else:
-        return "No token found!"
-
 
 def run_schedule():
     while True:
@@ -193,17 +274,24 @@ def run_schedule():
             msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
             send_telegram(msg)
             time.sleep(61)
-        time.sleep(30)
+        check_upcoming_events()
+        time.sleep(60)
 
 
 def start_scheduler():
     thread = threading.Thread(target=run_schedule, daemon=True)
     thread.start()
 
+def start_bot_listener():
+    thread = threading.Thread(target=handle_telegram_commands, daemon=True)
+    thread.start()
+
 
 if __name__ == "__main__":
     start_scheduler()
+    start_bot_listener()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
 else:
     start_scheduler()
+    start_bot_listener()
