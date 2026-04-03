@@ -26,7 +26,6 @@ REDIRECT_URI = "https://my-assistant-production-2fe1.up.railway.app/oauth2callba
 
 alerted_events = set()
 
-# Weekly checkin state
 checkin_state = {
     "active": False,
     "question_index": 0,
@@ -111,6 +110,46 @@ def get_calendar_events():
         return msg
     except Exception as e:
         return f"📅 Calendar error: {str(e)}"
+
+
+def get_gmail_summary():
+    try:
+        creds_json = os.environ.get("GOOGLE_TOKEN")
+        if not creds_json:
+            return "📧 No Gmail connected yet."
+
+        creds_data = json.loads(creds_json)
+        creds = Credentials(**creds_data)
+        gmail = build("gmail", "v1", credentials=creds)
+
+        results = gmail.users().messages().list(
+            userId="me",
+            labelIds=["UNREAD", "INBOX"],
+            maxResults=5
+        ).execute()
+
+        messages = results.get("messages", [])
+        if not messages:
+            return "📧 No unread emails!"
+
+        msg_summary = "📧 Unread emails:\n"
+        for m in messages:
+            msg = gmail.users().messages().get(
+                userId="me",
+                id=m["id"],
+                format="metadata",
+                metadataHeaders=["From", "Subject"]
+            ).execute()
+
+            headers = msg.get("payload", {}).get("headers", [])
+            subject = next((h["value"] for h in headers if h["name"] == "Subject"), "No subject")
+            sender = next((h["value"] for h in headers if h["name"] == "From"), "Unknown")
+            sender = sender.split("<")[0].strip()
+            msg_summary += f"• {sender}: {subject}\n"
+
+        return msg_summary
+    except Exception as e:
+        return f"📧 Gmail error: {str(e)}"
 
 
 def get_weekly_calendar_recap():
@@ -248,7 +287,6 @@ def handle_telegram_commands():
                 if chat_id != CHAT_ID:
                     continue
 
-                # Handle weekly checkin answers
                 if checkin_state["active"]:
                     checkin_state["answers"].append(text)
                     next_index = checkin_state["question_index"] + 1
@@ -263,7 +301,8 @@ def handle_telegram_commands():
                 if text in ["brief", "/brief"]:
                     motivation = get_motivation()
                     calendar = get_calendar_events()
-                    msg = f"🌅 Here's your briefing Ashton!\n\n{motivation}\n\n{calendar}"
+                    gmail = get_gmail_summary()
+                    msg = f"🌅 Here's your briefing Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
                     send_telegram(msg)
 
                 elif text in ["events", "/events"]:
@@ -271,6 +310,9 @@ def handle_telegram_commands():
 
                 elif text in ["quote", "/quote"]:
                     send_telegram(get_motivation())
+
+                elif text in ["emails", "/emails"]:
+                    send_telegram(get_gmail_summary())
 
                 elif text in ["checkin", "/checkin"]:
                     start_weekly_checkin()
@@ -281,6 +323,7 @@ def handle_telegram_commands():
                         "brief — morning briefing\n"
                         "events — today's calendar\n"
                         "quote — motivational quote\n"
+                        "emails — unread emails\n"
                         "checkin — start weekly check-in\n"
                         "help — show this list"
                     )
@@ -315,7 +358,8 @@ def home():
 def manual_brief():
     motivation = get_motivation()
     calendar = get_calendar_events()
-    msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
+    gmail = get_gmail_summary()
+    msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
     send_telegram(msg)
     return 'Briefing sent! Check Telegram!'
 
@@ -397,15 +441,14 @@ def run_schedule():
     while True:
         now = datetime.datetime.now()
 
-        # 4am Pacific = 12:00 UTC morning briefing
         if now.hour == 12 and now.minute == 0:
             motivation = get_motivation()
             calendar = get_calendar_events()
-            msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}"
+            gmail = get_gmail_summary()
+            msg = f"🌅 Good morning Ashton!\n\n{motivation}\n\n{calendar}\n\n{gmail}"
             send_telegram(msg)
             time.sleep(61)
 
-        # Sunday 8pm Pacific = Monday 4:00 UTC weekly checkin
         if now.weekday() == 0 and now.hour == 4 and now.minute == 0:
             start_weekly_checkin()
             time.sleep(61)
