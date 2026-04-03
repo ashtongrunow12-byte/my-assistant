@@ -1,5 +1,7 @@
 # redeploy trigger
 from flask import Flask, redirect, request, session
+import threading
+import time
 import os
 import json
 import datetime
@@ -8,7 +10,7 @@ import requests
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-app = Flask(__name__)
+app = Flask(__name__)   
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-this")
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -124,8 +126,23 @@ def oauth2callback():
 
     return "Calendar checked. Check your Telegram!"             
 
+def run_schedule():
+    while True:
+        now = datetime.datetime.now()
+        # Pacific time - 4am
+        if now.hour == 12 and now.minute == 0:  # 12:00 UTC = 4:00 AM Pacific
+            greeting = "🌅 Good morning Ashton! Here's your daily briefing!\n"
+            send_telegram(greeting)
+            time.sleep(61)  # wait 61 seconds to avoid sending twice
+        time.sleep(30)  # check every 30 seconds
 
+def start_scheduler():
+    thread = threading.Thread(target=run_schedule, daemon=True)
+    thread.start()
 
 if __name__ == "__main__":
+    start_scheduler()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)
+else:
+    start_scheduler()
