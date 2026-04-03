@@ -79,7 +79,14 @@ def ask_ai(prompt):
         }
         response = requests.post(url, json=payload, timeout=20)
         data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        print("Gemini response:", json.dumps(data))
+        
+        if "candidates" in data:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        elif "error" in data:
+            return f"API error: {data['error']['message']}"
+        else:
+            return f"Unexpected response: {str(data)[:200]}"
     except Exception as e:
         return f"AI error: {str(e)}"
 
