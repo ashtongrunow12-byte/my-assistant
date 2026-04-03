@@ -117,10 +117,11 @@ def login():
     session["code_verifier"] = code_verifier
     flow = get_flow(code_verifier=code_verifier)
     auth_url, state = flow.authorization_url(
-        access_type="offline",
-        include_granted_scopes="true",
-        code_challenge_method="S256"
-    )
+    access_type="offline",
+    include_granted_scopes="true",
+    code_challenge_method="S256",
+    prompt="consent"
+)
     session["state"] = state
     return redirect(auth_url)
 
